@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<title>Mr. Titan Shield</title>
+<style>
+:root{--cu:#b87333;--bl:#3a5fc8;--vi:#8a3ffc;--gr:#1faa59}
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:#fff;font-family:system-ui,sans-serif;text-align:center;padding:20px;max-width:480px;margin:auto}
+.logo{width:120px;height:120px;border-radius:50%;border:3px solid var(--cu)}
+h1{color:var(--cu);letter-spacing:3px;font-size:22px;margin:10px 0 2px}
+.sub{color:#888;font-size:12px;margin-bottom:16px}
+.card{border:1px solid var(--cu);border-radius:18px;padding:16px;margin:14px 0;background:#0b0b0f}
+select{width:100%;padding:12px;background:#111;color:#fff;border:1px solid var(--cu);border-radius:10px;font-size:16px}
+#st{font-size:18px;margin:14px 0 4px;color:#aaa}
+.btn{width:150px;height:150px;border-radius:50%;border:4px solid var(--cu);background:#111;color:#fff;font-size:16px;font-weight:bold;margin:14px auto;cursor:pointer;transition:.3s}
+.on{border-color:var(--bl);box-shadow:0 0 35px var(--vi)}
+.busy{border-color:var(--vi);opacity:.7}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{border:1px solid #333;border-radius:12px;padding:10px}
+.stat b{display:block;font-size:18px;color:var(--bl)}
+.stat span{font-size:11px;color:#888}
+.row{display:flex;justify-content:space-between;align-items:center;padding:12px 4px;border-bottom:1px solid #222;text-align:left}
+.row:last-child{border:0}
+.sw{width:46px;height:26px;border-radius:13px;background:#333;position:relative;cursor:pointer;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
+.sw.on2{background:var(--cu)}
+.sw.on2::after{left:23px}
+.tag{display:inline-block;font-size:11px;border:1px solid var(--cu);color:var(--cu);border-radius:20px;padding:2px 10px;margin-top:6px}
+small{color:var(--cu);display:block;margin-top:18px;font-size:12px}
+</style></head><body>
+<img class="logo" src="assets/logo.jpg" alt="" onerror="this.style.display='none'">
+<h1>MR. TITAN SHIELD</h1>
+<div class="sub">VPN professionnel</div>
+
+<div class="card">
+<b>Module Temu</b><br><span class="tag">Mode démo</span><br><br>
+<select id="srv">
+<option>🇫🇷 France</option><option>🇩🇪 Allemagne</option>
+<option>🇳🇱 Pays-Bas</option><option>🇺🇸 États-Unis</option>
+</select>
+<div id="st">Déconnecté</div>
+<button class="btn" id="b" onclick="t()">CONNECTER</button>
+<div class="grid">
+<div class="stat"><b id="dur">00:00:00</b><span>Durée</span></div>
+<div class="stat"><b id="ping">-- ms</b><span>Ping</span></div>
+<div class="stat"><b id="dl">0.0 Mo</b><span>Reçu</span></div>
+<div class="stat"><b id="ul">0.0 Mo</b><span>Envoyé</span></div>
+</div>
+</div>
+
+<div class="card">
+<div class="row"><span>Kill switch</span><div class="sw" data-k="kill"></div></div>
+<div class="row"><span>Protection fuite DNS</span><div class="sw" data-k="dns"></div></div>
+<div class="row"><span>Reconnexion automatique</span><div class="sw" data-k="auto"></div></div>
+<div class="row"><span>Économie de batterie</span><div class="sw" data-k="eco"></div></div>
+</div>
+
+<small>La performance · La qualité · et la vitesse</small>
+
+<script>
+const $=id=>document.getElementById(id);
+let on=false,busy=false,iv,t0,dl=0,ul=0,cfg={kill:1,dns:1,auto:1,eco:0};
+try{Object.assign(cfg,JSON.parse(localStorage.getItem('tsCfg')||'{}'))}catch(e){}
+document.querySelectorAll('.sw').forEach(s=>{
+ const k=s.dataset.k; s.classList.toggle('on2',!!cfg[k]);
+ s.onclick=()=>{cfg[k]=cfg[k]?0:1;s.classList.toggle('on2',!!cfg[k]);
+  try{localStorage.setItem('tsCfg',JSON.stringify(cfg))}catch(e){}}
+});
+const p=n=>String(n).padStart(2,'0');
+function t(){
+ if(busy)return;
+ if(on){stop();return}
+ busy=true;$('b').classList.add('busy');$('b').textContent='...';$('st').textContent='Connexion en cours';
+ setTimeout(()=>{
+  busy=false;on=true;t0=Date.now();dl=ul=0;
+  $('b').classList.remove('busy');$('b').classList.add('on');
+  $('b').textContent='DÉCONNECTER';$('st').textContent='Connecté – '+$('srv').value;
+  $('st').style.color='#1faa59';
+  iv=setInterval(()=>{
+   const s=Math.floor((Date.now()-t0)/1000);
+   $('dur').textContent=p(Math.floor(s/3600))+':'+p(Math.floor(s/60)%60)+':'+p(s%60);
+   $('ping').textContent=(20+Math.floor(Math.random()*30))+' ms';
+   dl+=Math.random()*0.4;ul+=Math.random()*0.1;
+   $('dl').textContent=dl.toFixed(1)+' Mo';$('ul').textContent=ul.toFixed(1)+' Mo';
+  },1000);
+ },1500);
+}
+function stop(){
+ on=false;clearInterval(iv);
+ $('b').classList.remove('on');$('b').textContent='CONNECTER';
+ $('st').textContent='Déconnecté';$('st').style.color='#aaa';
+ $('ping').textContent='-- ms';
+}
+</script><script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js")</script><script>if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js")</script></body></html>
