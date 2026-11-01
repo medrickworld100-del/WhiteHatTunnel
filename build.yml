@@ -1,0 +1,276 @@
+name: Build Titan Tunnel APK
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Creer le projet
+        run: |
+          mkdir -p TitanTunnel && cd TitanTunnel
+          mkdir -p app
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.titan.tunnel"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.titan.tunnel"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              buildTypes {
+                  release { isMinifyEnabled = false }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_1_8
+                  targetCompatibility = JavaVersion.VERSION_1_8
+                  isCoreLibraryDesugaringEnabled = true
+              }
+              kotlinOptions { jvmTarget = "1.8" }
+          }
+
+          dependencies {
+              implementation("com.wireguard.android:tunnel:1.0.20230706")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("androidx.core:core-ktx:1.13.1")
+              coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+          }
+          EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+              <application
+                  android:label="Titan Tunnel"
+                  android:theme="@style/Theme.Titan"
+                  android:allowBackup="false">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          mkdir -p app/src/main/java/com/titan/tunnel
+          cat > app/src/main/java/com/titan/tunnel/MainActivity.kt <<'EOF'
+          package com.titan.tunnel
+
+          import android.app.Activity
+          import android.graphics.Color
+          import android.net.VpnService
+          import android.os.Bundle
+          import android.view.Gravity
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.appcompat.app.AppCompatActivity
+          import kotlin.concurrent.thread
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var vpn: TitanVpn
+              private lateinit var status: TextView
+              private lateinit var button: Button
+              private var connected = false
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  vpn = TitanVpn(this)
+
+                  val title = TextView(this).apply {
+                      text = "TITAN TUNNEL"
+                      textSize = 28f
+                      setTextColor(Color.WHITE)
+                      gravity = Gravity.CENTER
+                  }
+                  status = TextView(this).apply {
+                      text = "Déconnecté"
+                      textSize = 18f
+                      setTextColor(Color.parseColor("#F87171"))
+                      gravity = Gravity.CENTER
+                      setPadding(0, 32, 0, 48)
+                  }
+                  button = Button(this).apply {
+                      text = "Se connecter"
+                      setOnClickListener { toggle() }
+                  }
+
+                  setContentView(LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER
+                      setPadding(64, 64, 64, 64)
+                      addView(title)
+                      addView(status)
+                      addView(button)
+                  })
+
+                  thread { runOnUiThread { render(vpn.isUp()) } }
+              }
+
+              private fun toggle() {
+                  if (connected) {
+                      thread {
+                          try { vpn.disconnect(); runOnUiThread { render(false) } }
+                          catch (e: Exception) { toast("Erreur : ${e.message}") }
+                      }
+                  } else {
+                      val intent = VpnService.prepare(this)
+                      if (intent != null) startActivityForResult(intent, REQ_VPN) else startTunnel()
+                  }
+              }
+
+              private fun startTunnel() {
+                  status.text = "Connexion…"
+                  thread {
+                      try { vpn.connect(); runOnUiThread { render(true) } }
+                      catch (e: Exception) {
+                          runOnUiThread { render(false) }
+                          toast("Erreur : ${e.message}")
+                      }
+                  }
+              }
+
+              @Deprecated("Deprecated in Java")
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode == REQ_VPN && resultCode == Activity.RESULT_OK) startTunnel()
+              }
+
+              private fun render(up: Boolean) {
+                  connected = up
+                  status.text = if (up) "Connecté" else "Déconnecté"
+                  status.setTextColor(Color.parseColor(if (up) "#4ADE80" else "#F87171"))
+                  button.text = if (up) "Se déconnecter" else "Se connecter"
+              }
+
+              private fun toast(msg: String) = runOnUiThread {
+                  Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+              }
+
+              companion object { private const val REQ_VPN = 1 }
+          }
+          EOF
+          mkdir -p app/src/main/java/com/titan/tunnel
+          cat > app/src/main/java/com/titan/tunnel/TitanVpn.kt <<'EOF'
+          package com.titan.tunnel
+
+          import android.content.Context
+          import com.wireguard.android.backend.GoBackend
+          import com.wireguard.android.backend.Tunnel
+          import com.wireguard.config.Config
+          import com.wireguard.config.InetNetwork
+          import com.wireguard.config.Interface
+          import com.wireguard.config.Peer
+          import java.net.InetAddress
+
+          class TitanVpn(context: Context) {
+
+              private val backend = GoBackend(context.applicationContext)
+
+              private val tunnel = object : Tunnel {
+                  override fun getName() = "titan"
+                  override fun onStateChange(newState: Tunnel.State) {
+                      onState?.invoke(newState == Tunnel.State.UP)
+                  }
+              }
+
+              var onState: ((Boolean) -> Unit)? = null
+
+              private fun buildConfig(): Config {
+                  val iface = Interface.Builder()
+                      .parsePrivateKey(VpnConfig.CLIENT_PRIVATE_KEY)
+                      .addAddress(InetNetwork.parse(VpnConfig.CLIENT_ADDRESS))
+                      .addDnsServer(InetAddress.getByName(VpnConfig.DNS))
+                      .build()
+                  val peer = Peer.Builder()
+                      .parsePublicKey(VpnConfig.SERVER_PUBLIC_KEY)
+                      .parseEndpoint(VpnConfig.SERVER_ENDPOINT)
+                      .addAllowedIp(InetNetwork.parse("0.0.0.0/0"))
+                      .addAllowedIp(InetNetwork.parse("::/0"))
+                      .setPersistentKeepalive(25)
+                      .build()
+                  return Config.Builder().setInterface(iface).addPeer(peer).build()
+              }
+
+              /** À appeler hors du thread principal. */
+              fun connect() {
+                  backend.setState(tunnel, Tunnel.State.UP, buildConfig())
+              }
+
+              fun disconnect() {
+                  backend.setState(tunnel, Tunnel.State.DOWN, null)
+              }
+
+              fun isUp(): Boolean = backend.getState(tunnel) == Tunnel.State.UP
+          }
+          EOF
+          mkdir -p app/src/main/java/com/titan/tunnel
+          cat > app/src/main/java/com/titan/tunnel/VpnConfig.kt <<'EOF'
+          package com.titan.tunnel
+
+          /**
+           * A REMPLIR avec les valeurs de VOTRE serveur WireGuard.
+           * Ne jamais publier une vraie clé privée dans un dépôt public.
+           */
+          object VpnConfig {
+              const val CLIENT_PRIVATE_KEY = "COLLER_CLE_PRIVEE_CLIENT"
+              const val CLIENT_ADDRESS = "10.8.0.2/32"
+              const val DNS = "1.1.1.1"
+
+              const val SERVER_PUBLIC_KEY = "COLLER_CLE_PUBLIQUE_SERVEUR"
+              const val SERVER_ENDPOINT = "IP_DU_SERVEUR:51820"
+          }
+          EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <resources>
+              <style name="Theme.Titan" parent="Theme.AppCompat.NoActionBar">
+                  <item name="android:windowBackground">#0B1220</item>
+                  <item name="android:statusBarColor">#0B1220</item>
+              </style>
+          </resources>
+          EOF
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "TitanTunnel"
+          include(":app")
+          EOF
+      - name: Compiler
+        run: cd TitanTunnel && gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TitanTunnel-apk
+          path: TitanTunnel/app/build/outputs/apk/debug/app-debug.apk
